@@ -60,6 +60,28 @@ func DefaultErrorEncoder(_ context.Context, err error, w http.ResponseWriter)
     encoded form of the error will be used. If the error implements StatusCoder,
     the provided StatusCode will be used instead of 500.
 
+func EncodeParameter(param *openapi3.Parameter, value any) (*EncodedParameter, error)
+    EncodeParameter serializes value for param according to its "in", "style",
+    "explode" and "allowReserved" properties.
+
+    value must be a primitive (string or a Go bool/[u]int*/float*/json.Number),
+    a slice/array of primitives, or a map with string keys and primitive values.
+    Structured values that cannot be represented unambiguously by the chosen
+    serialization method (nested objects or arrays, structural delimiters in
+    a value, ...) produce a *ParseError with a parameter-specific reason,
+    so no information is silently lost.
+
+    EncodeParameter never mutates a request: it only computes the encoding.
+    Use EncodedParameter.SetOnRequest (or EncodeRequestParameter) to write the
+    result.
+
+func EncodeRequestParameter(request *http.Request, param *openapi3.Parameter, value any) error
+    EncodeRequestParameter serializes value for param and writes the encoding
+    to request. It is a convenience wrapper around EncodeParameter and
+    EncodedParameter.SetOnRequest: the request is left untouched on error,
+    so an unsupported style/explode combination is reported before any URL or
+    header is modified.
+
 func FileBodyDecoder(body io.Reader, header http.Header, schema *openapi3.SchemaRef, encFn EncodingFn) (any, error)
     FileBodyDecoder is a body decoder that decodes a file body to a string.
 
@@ -192,6 +214,43 @@ type ContentParameterDecoder func(param *openapi3.Parameter, values []string) (a
 type CustomSchemaErrorFunc func(err *openapi3.SchemaError) string
     CustomSchemaErrorFunc allows for custom the schema error message.
 
+type EncodedParameter struct {
+	// Parameter is the parameter definition the value was encoded for.
+	Parameter *openapi3.Parameter
+
+	// PathSegment is the value to substitute into a path template, including
+	// the style prefix (".", ";name=") but excluding the braces.
+	PathSegment string
+
+	// QueryPairs holds the generated query occurrences, in emission order.
+	// QueryKey is percent-escaped; QueryValue is the unescaped value.
+	QueryPairs []QueryPair
+
+	// HeaderValue is the raw value for an HTTP header field or a cookie.
+	HeaderValue string
+}
+    EncodedParameter is the wire encoding of a typed parameter value produced by
+    EncodeParameter according to the parameter's location, style and explode.
+
+    The fields are populated by location:
+      - Path: PathSegment is set.
+      - Query: QueryPairs holds one or more key/value pairs; values are not
+        percent-escaped, QueryKey is already percent-escaped, and each pair is
+        meant to be joined as "<escaped key>=<escaped value>".
+      - Header: HeaderValue is set (a raw field value without any escaping).
+      - Cookie: HeaderValue holds the raw cookie value (SetOnRequest performs
+        the cookie-specific wire handling via net/http).
+
+func (encoded *EncodedParameter) SetOnRequest(request *http.Request) error
+    SetOnRequest writes the encoding to request:
+      - path parameters replace the "{name}" placeholder of request.URL.Path;
+      - query parameters are appended to request.URL.RawQuery, preserving the
+        existing entries, their order and any unrelated duplicates;
+      - header parameters set the named field of request.Header;
+      - cookie parameters are added through request.AddCookie.
+
+    A path placeholder is required for path parameters.
+
 type EncodingFn func(partName string) *openapi3.Encoding
     EncodingFn is a function that returns an encoding of a request body's part.
 
@@ -302,6 +361,13 @@ const (
 	// that is required by a serialization method.
 	KindInvalidFormat
 )
+type QueryPair struct {
+	QueryKey   string
+	QueryValue string
+}
+    QueryPair is one occurrence of a query parameter: a percent-escaped key and
+    an unescaped value that must be percent-escaped when written to a URL.
+
 type RequestError struct {
 	Input       *RequestValidationInput
 	Parameter   *openapi3.Parameter
