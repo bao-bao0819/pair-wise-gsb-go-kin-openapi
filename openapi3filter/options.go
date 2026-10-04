@@ -10,6 +10,25 @@ type Options struct {
 	// Set ExcludeRequestQueryParams so ValidateRequest skips request query params validation
 	ExcludeRequestQueryParams bool
 
+	// Set StrictQueryParameterAttribution so ValidateRequest compiles an
+	// occupation plan for the whole operation before decoding query
+	// parameters. Every raw query item is then attributed to at most one
+	// parameter. Statically known parameter collisions fail while compiling
+	// the plan; collisions that depend on the request (e.g. two open object
+	// parameter sets) fail with a *QueryAttributionError that lists the raw
+	// item and every candidate parameter.
+	//
+	// When unset, parameters are decoded one by one against the whole query
+	// string and one raw item may feed several parameters (the historical,
+	// permissive behavior).
+	StrictQueryParameterAttribution bool
+
+	// Set RejectUnconsumedQueryParams together with
+	// StrictQueryParameterAttribution so raw query items that no operation
+	// parameter can claim make ValidateRequest fail. Without it such items
+	// are reported in *RequestValidationInput.QueryAttribution but ignored.
+	RejectUnconsumedQueryParams bool
+
 	// Set ExcludeResponseBody so ValidateResponse skips response body validation
 	ExcludeResponseBody bool
 

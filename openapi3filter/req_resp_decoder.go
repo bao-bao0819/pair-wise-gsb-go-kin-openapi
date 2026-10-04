@@ -130,7 +130,7 @@ func decodeContentParameter(param *openapi3.Parameter, input *RequestValidationI
 			paramValues = []string{paramValue}
 		}
 	case openapi3.ParameterInQuery:
-		paramValues, found = input.GetQueryParams()[param.Name]
+		paramValues, found = queryValuesForParameter(input, param.Name)[param.Name]
 	case openapi3.ParameterInHeader:
 		var headerValues []string
 		if headerValues, found = input.Request.Header[http.CanonicalHeaderKey(param.Name)]; found {
@@ -252,10 +252,11 @@ func decodeStyledParameter(param *openapi3.Parameter, input *RequestValidationIn
 		}
 		dec = &pathParamDecoder{pathParams: input.PathParams}
 	case openapi3.ParameterInQuery:
-		if len(input.GetQueryParams()) == 0 {
+		queryValues := queryValuesForParameter(input, param.Name)
+		if len(queryValues) == 0 {
 			return nil, false, nil
 		}
-		dec = &urlValuesDecoder{values: input.GetQueryParams()}
+		dec = &urlValuesDecoder{values: queryValues}
 	case openapi3.ParameterInHeader:
 		dec = &headerParamDecoder{header: input.Request.Header}
 	case openapi3.ParameterInCookie:
@@ -268,6 +269,16 @@ func decodeStyledParameter(param *openapi3.Parameter, input *RequestValidationIn
 }
 
 var errCircularSchema = errors.New("circular schema reference detected while decoding")
+
+// queryValuesForParameter returns the query values a parameter may decode.
+// In strict attribution mode only the items assigned to the parameter are
+// visible; otherwise the whole request query string is used (loose mode).
+func queryValuesForParameter(input *RequestValidationInput, name string) url.Values {
+	if q, strict := input.strictQueryParams(name); strict {
+		return q
+	}
+	return input.GetQueryParams()
+}
 
 func decodeValue(dec valueDecoder, param string, sm *openapi3.SerializationMethod, schema *openapi3.SchemaRef, required bool) (any, bool, error) {
 	return decodeValueGuarded(dec, param, sm, schema, required, nil)

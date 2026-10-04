@@ -42,6 +42,16 @@ func ValidateRequest(ctx context.Context, input *RequestValidationInput) error {
 	operationParameters := operation.Parameters
 	pathItemParameters := route.PathItem.Parameters
 
+	// Strict query attribution: compile the whole operation's occupation plan
+	// and attribute the raw query before anything is decoded or the
+	// authentication callback runs. A failure therefore never rewrites the
+	// request URL and never exposes half-decoded parameters to authentication.
+	if options.StrictQueryParameterAttribution && !options.ExcludeRequestQueryParams {
+		if err := attributeRequestQuery(input, pathItemParameters, operationParameters); err != nil {
+			return err
+		}
+	}
+
 	// Security
 	security := operation.Security
 	// If there aren't any security requirements for the operation
@@ -127,6 +137,48 @@ func appendToQueryValues[T any](q url.Values, parameterName string, v []T) {
 	}
 }
 
+// attributeRequestQuery compiles the operation's query parameter occupation
+// plan (with path item parameters overridden by operation parameters) and
+// assigns every raw query item to at most one parameter. It runs before
+// decoding and authentication, and mutates neither the request URL nor any
+// decoded value.
+func attributeRequestQuery(input *RequestValidationInput, pathItemParameters, operationParameters openapi3.Parameters) error {
+	plan, err := compileQueryParameterPlan(pathItemParameters, operationParameters)
+	if err != nil {
+		return err
+	}
+
+	raw := input.Request.URL.RawQuery
+	var items []rawQueryItem
+	if raw != "" {
+		items = parseRawQuery(raw)
+	} else {
+		// Callers may supply query values directly instead of via the URL.
+		// Encode them; ordering is not preserved in this fallback path.
+		q := input.GetQueryParams()
+		if len(q) > 0 {
+			items = parseRawQuery(q.Encode())
+		}
+	}
+
+	values, report := attributeQuery(plan, items)
+	input.strictQuery = values
+	input.queryAttribution = report
+
+	attrErr := &QueryAttributionError{}
+	if len(report.Ambiguous) > 0 {
+		attrErr.Ambiguous = report.Ambiguous
+	}
+	options := input.Options
+	if options != nil && options.RejectUnconsumedQueryParams && len(report.Unconsumed) > 0 {
+		attrErr.Unconsumed = report.Unconsumed
+	}
+	if len(attrErr.Ambiguous) > 0 || len(attrErr.Unconsumed) > 0 {
+		return attrErr
+	}
+	return nil
+}
+
 func joinValues(values []any, sep string) string {
 	strValues := make([]string, 0, len(values))
 	for _, v := range values {
@@ -204,10 +256,13 @@ func ValidateParameter(ctx context.Context, input *RequestValidationInput, param
 				// Path parameters are required.
 				// Next check `parameter.Required && !found` will catch this.
 			case openapi3.ParameterInQuery:
+				_, strict := input.strictQueryParams(parameter.Name)
 				q := req.URL.Query()
 				explode := parameter.Explode != nil && *parameter.Explode
 				populateDefaultQueryParameters(q, parameter.Name, value, explode)
-				req.URL.RawQuery = q.Encode()
+				if !strict {
+					req.URL.RawQuery = q.Encode()
+				}
 			case openapi3.ParameterInHeader:
 				req.Header.Add(parameter.Name, fmt.Sprint(value))
 			case openapi3.ParameterInCookie:

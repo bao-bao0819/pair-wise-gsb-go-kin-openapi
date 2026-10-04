@@ -26,6 +26,14 @@ type RequestValidationInput struct {
 	Route        *routers.Route
 	Options      *Options
 	ParamDecoder ContentParameterDecoder
+
+	// strictQuery holds the per-parameter query views produced by strict
+	// attribution. It is populated before any parameter is decoded so a
+	// failure never leaves a half-decoded operation behind.
+	strictQuery map[string]url.Values
+	// queryAttribution is the report (ambiguous/unconsumed items) produced by
+	// strict attribution. Use QueryAttribution to inspect it.
+	queryAttribution *QueryAttributionReport
 }
 
 func (input *RequestValidationInput) GetQueryParams() url.Values {
@@ -35,4 +43,22 @@ func (input *RequestValidationInput) GetQueryParams() url.Values {
 		input.QueryParams = q
 	}
 	return q
+}
+
+// QueryAttribution returns the strict-attribution report for the last
+// ValidateRequest run. It is nil unless
+// Options.StrictQueryParameterAttribution is enabled. Ambiguous items fail
+// validation; the report also lists unconsumed items regardless of whether
+// RejectUnconsumedQueryParams rejects them.
+func (input *RequestValidationInput) QueryAttribution() *QueryAttributionReport {
+	return input.queryAttribution
+}
+
+// strictQueryParams returns the query values attributed to the given
+// parameter when strict attribution is active, and whether it was applied.
+func (input *RequestValidationInput) strictQueryParams(name string) (url.Values, bool) {
+	if input.strictQuery == nil {
+		return nil, false
+	}
+	return input.strictQuery[name], true
 }
