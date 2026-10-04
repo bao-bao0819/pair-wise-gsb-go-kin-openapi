@@ -75,7 +75,7 @@ func escapeRefString(s string) string {
 	if !strings.ContainsAny(s, "~/") {
 		return s
 	}
-	return strings.NewReplacer("~", "~0", "/", "~1").Replace(s)
+	return strings.NewReplacer("/", "~1", "~", "~0").Replace(s)
 }
 
 func (w *schemaWalker) document(doc *T) error {
