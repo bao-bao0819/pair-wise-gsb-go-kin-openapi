@@ -214,6 +214,29 @@ func PathItemMethods() []string
     lives in AdditionalOperations, so a caller that treats the two groups
     differently can tell them apart without listing the fixed methods itself.
 
+func PruneOperations(doc *T, loader *Loader, operationIDs []string) (*T, *PruneReport, error)
+    PruneOperations returns a new, self-contained document that keeps only the
+    operations named by operationIDs (looked up in doc's paths and webhooks),
+    together with everything those operations need:
+
+      - path-level parameters, and the effective security and servers (root,
+        path-item and operation levels are preserved as written);
+      - every component reachable from the kept operations, including through
+        schema cycles, callbacks, links and discriminator mappings.
+
+    All references in the returned document are internal ("#/components/..."),
+    so it loads and validates without access to the original external files.
+    Components with the same name coming from different files never overwrite
+    each other: later ones are renamed deterministically (see PruneReport).
+    Links that target operations outside the selection are removed and listed
+    in the report. Unselected operations and unreachable components are dropped.
+    The input document is not modified.
+
+    The loader is the one the document was loaded with; it is used to resolve
+    relative references the same way they were resolved at load time. When a
+    reference cannot be resolved, the returned error carries the full chain of
+    references that led to it, and no document is returned.
+
 func Ptr[T any](value T) *T
     Ptr is a helper for defining OpenAPI schemas.
 
@@ -2362,6 +2385,18 @@ func (e *PropertyNamesFieldFor31Plus) As(target any) bool
 
 func (e *PropertyNamesFieldFor31Plus) Code() string
 
+type PruneReport struct {
+	// RemovedLinks lists links that were removed because they target an
+	// operation outside the selection. The operation set is never expanded
+	// to keep a link.
+	RemovedLinks []RemovedLink
+	// RenamedComponents lists components whose name changed, e.g. two
+	// components named "Node" coming from different files.
+	RenamedComponents []RenamedComponent
+}
+    PruneReport describes what PruneOperations dropped or renamed while building
+    the pruned document.
+
 type QueryFieldFor32Plus struct{ ValidationError }
 
 func (e *QueryFieldFor32Plus) As(target any) bool
@@ -2422,6 +2457,32 @@ type RegexCompilerFunc func(expr string) (RegexMatcher, error)
 type RegexMatcher interface {
 	MatchString(s string) bool
 }
+
+type RemovedLink struct {
+	// Source is the location of the link in the original document, e.g.
+	// "paths./pets/get -> responses.200 -> links.getPet".
+	Source string
+	// Name is the key of the link in its Links map.
+	Name string
+	// OperationID is the link's operationId target, when set.
+	OperationID string
+	// OperationRef is the link's operationRef target, when set.
+	OperationRef string
+}
+    RemovedLink describes a link that PruneOperations dropped because it points
+    at an operation that is not part of the selection.
+
+type RenamedComponent struct {
+	// Collection is the components collection, e.g. "schemas".
+	Collection string
+	// Name is the component's name in the pruned document.
+	Name string
+	// Source is the canonical URI of the original component.
+	Source string
+}
+    RenamedComponent describes a component that PruneOperations stored under a
+    different name because its preferred name was already taken by a component
+    from another document.
 
 type RequestBodies map[string]*RequestBodyRef // RequestBodies represents components' named request bodies
 
