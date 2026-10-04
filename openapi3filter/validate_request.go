@@ -50,11 +50,25 @@ func ValidateRequest(ctx context.Context, input *RequestValidationInput) error {
 		security = &route.Spec.Security
 	}
 	if security != nil {
-		if err := ValidateSecurityRequirements(ctx, input, *security); err != nil {
+		var securityErr error
+		if options.Authenticator != nil {
+			// Branch-isolated authentication: each OR branch gets a fresh
+			// context and is committed only once all its schemes succeed.
+			// Default behavior stops at the first successful branch so no
+			// extra authentication service calls are made; callers that need
+			// the committed context or to keep probing use AuthenticateRequest
+			// directly with AuthenticationOptions.
+			var report *AuthenticationReport
+			ctx, report, securityErr = authenticate(ctx, input, options, security, nil)
+			input.AuthenticationReport = report
+		} else {
+			securityErr = ValidateSecurityRequirements(ctx, input, *security)
+		}
+		if securityErr != nil {
 			if !options.MultiError {
-				return err
+				return securityErr
 			}
-			me = append(me, err)
+			me = append(me, securityErr)
 		}
 	}
 

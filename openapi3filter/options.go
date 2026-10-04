@@ -36,6 +36,15 @@ type Options struct {
 	// See NoopAuthenticationFunc
 	AuthenticationFunc AuthenticationFunc
 
+	// Authenticator optionally provides branch-isolated authentication with
+	// a structured AuthenticationReport. When set, ValidateRequest evaluates
+	// the operation's OR/AND security requirements through AuthenticateRequest:
+	// each OR branch gets a fresh context and a branch is committed only after
+	// every one of its schemes succeeds. AuthenticationFunc remains supported
+	// for backward compatibility and is used (via NewAuthenticator) when
+	// Authenticator is nil.
+	Authenticator Authenticator
+
 	// Indicates whether default values are set in the
 	// request. If true, then they are not set
 	SkipSettingDefaults bool

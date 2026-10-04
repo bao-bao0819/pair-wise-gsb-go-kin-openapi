@@ -26,6 +26,14 @@ type RequestValidationInput struct {
 	Route        *routers.Route
 	Options      *Options
 	ParamDecoder ContentParameterDecoder
+
+	// AuthenticationReport, when Options.Authenticator is set, is populated by
+	// ValidateRequest with the report of the branch-isolated authentication.
+	// It is nil when authentication runs through the legacy
+	// AuthenticationFunc/ValidateSecurityRequirements path and it never
+	// contains credential values. Direct callers of AuthenticateRequest
+	// receive the report as a return value instead.
+	AuthenticationReport *AuthenticationReport
 }
 
 func (input *RequestValidationInput) GetQueryParams() url.Values {
