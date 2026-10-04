@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -403,127 +402,6 @@ func ValidateRequestBody(ctx context.Context, input *RequestValidationInput, req
 // requirements in order and returns nil on the first valid requirement.
 // If no requirement is met, errors are returned in order.
 func ValidateSecurityRequirements(ctx context.Context, input *RequestValidationInput, srs openapi3.SecurityRequirements) error {
-	if len(srs) == 0 {
-		return nil
-	}
-	var errs []error
-	for _, sr := range srs {
-		if err := validateSecurityRequirement(ctx, input, sr); err != nil {
-			if len(errs) == 0 {
-				errs = make([]error, 0, len(srs))
-			}
-			errs = append(errs, err)
-			continue
-		}
-		return nil
-	}
-	return &SecurityRequirementsError{
-		SecurityRequirements: srs,
-		Errors:               errs,
-	}
-}
-
-// validateSecurityRequirement validates a single OpenAPI 3 security requirement
-func validateSecurityRequirement(ctx context.Context, input *RequestValidationInput, securityRequirement openapi3.SecurityRequirement) error {
-	names := make([]string, 0, len(securityRequirement))
-	for name := range securityRequirement {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-
-	// Get authentication function
-	options := input.Options
-	if options == nil {
-		options = &Options{}
-	}
-	f := options.AuthenticationFunc
-	if f == nil {
-		return ErrAuthenticationServiceMissing
-	}
-
-	var securitySchemes openapi3.SecuritySchemes
-	if components := input.Route.Spec.Components; components != nil {
-		securitySchemes = components.SecuritySchemes
-	}
-
-	// NOTE that because we could have an `AuthenticationFunc` that reads the request body, we need to provide a fresh `io.Reader` to each iteration of the loop. To make this more performant, we can read the request body once into memory (which may be costly) and then create a fresh `io.Reader` for each `AuthenticationFunc`
-	var data []byte
-
-	if input.Request != nil && input.Request.Body != http.NoBody && input.Request.Body != nil {
-		defer input.Request.Body.Close()
-
-		var err error
-		if data, err = io.ReadAll(input.Request.Body); err != nil {
-			return &RequestError{
-				Input:  input,
-				Reason: "reading failed",
-				Err:    err,
-			}
-		}
-	}
-
-	// For each scheme for the requirement
-	for _, name := range names {
-		var securityScheme *openapi3.SecurityScheme
-		if securitySchemes != nil {
-			if ref := securitySchemes[name]; ref != nil {
-				securityScheme = ref.Value
-			}
-		}
-		if securityScheme == nil {
-			return &RequestError{
-				Input: input,
-				Err:   fmt.Errorf("security scheme %q is not declared", name),
-			}
-		}
-		scopes := securityRequirement[name]
-
-		// if there was a request body, then make sure we provide a new copy of the body in the `input`
-		if data != nil {
-			var err error
-			// Put the data back into the input
-			input.Request.Body = nil
-			if input.Request.GetBody != nil {
-				if input.Request.Body, err = input.Request.GetBody(); err != nil {
-					input.Request.Body = nil
-				}
-			}
-			if input.Request.Body == nil {
-				input.Request.ContentLength = int64(len(data))
-				input.Request.GetBody = func() (io.ReadCloser, error) {
-					return io.NopCloser(bytes.NewReader(data)), nil
-				}
-				input.Request.Body, _ = input.Request.GetBody() // no error return
-			}
-		}
-
-		if err := f(ctx, &AuthenticationInput{
-			RequestValidationInput: input,
-			SecuritySchemeName:     name,
-			SecurityScheme:         securityScheme,
-			Scopes:                 scopes,
-		}); err != nil {
-			return err
-		}
-	}
-
-	// if there was a request body, then make sure we put it back into the `input`
-	if data != nil {
-		var err error
-		// Put the data back into the input
-		input.Request.Body = nil
-		if input.Request.GetBody != nil {
-			if input.Request.Body, err = input.Request.GetBody(); err != nil {
-				input.Request.Body = nil
-			}
-		}
-		if input.Request.Body == nil {
-			input.Request.ContentLength = int64(len(data))
-			input.Request.GetBody = func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(data)), nil
-			}
-			input.Request.Body, _ = input.Request.GetBody() // no error return
-		}
-	}
-	return nil
+	_, err := ValidateSecurityRequirementsWithReport(ctx, input, srs, nil)
+	return err
 }
