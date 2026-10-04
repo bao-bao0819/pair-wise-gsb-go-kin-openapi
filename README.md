@@ -49,6 +49,8 @@ Be sure to check [OpenAPI Initiative](https://github.com/OAI)'s [great tooling l
   * _openapi3filter_ ([Go Reference](https://pkg.go.dev/github.com/getkin/kin-openapi/openapi3filter))
     * Validates HTTP requests and responses
     * Provides a [gorilla/mux](https://github.com/gorilla/mux) router for OpenAPI operations
+  * _openapi3link_ ([Go Reference](https://pkg.go.dev/github.com/getkin/kin-openapi/openapi3link))
+    * Evaluates OpenAPI 3.0 Link runtime expressions into typed input plans without sending requests
   * _openapi3gen_ ([Go Reference](https://pkg.go.dev/github.com/getkin/kin-openapi/openapi3gen))
     * Generates `*openapi3.Schema` values for Go types.
 
